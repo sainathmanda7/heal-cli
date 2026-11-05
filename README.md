@@ -31,12 +31,9 @@ Most "AI fixers" paste model output straight into your repo and hope for the bes
 If your command succeeds, `heal` stays invisible. If it crashes, `heal` takes over.
 
 ## Demo
-
-<!-- Replace with a real recording (e.g. asciinema → GIF, or VHS). Suggested storyboard:
-     1. `heal go run main.go` on a program that panics (nil map write / index out of range)
-     2. Live PTY output streams, then the crash
-     3. heal reports candidates being tested in parallel
-     4. Winning patch applied, program re-runs cleanly -->
+<p align="center">
+  <img src="docs/hero.gif" alt="heal-cli demo" width="800" />
+</p>
 
 <p align="center">
   <img src="docs/assets/demo.gif" alt="heal-cli catching a panic and repairing it automatically" width="800" />
