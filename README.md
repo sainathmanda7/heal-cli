@@ -2,16 +2,16 @@
 
 # heal-cli
 
-**A transparent execution proxy that catches Go runtime failures and repairs the source automatically, treating the LLM as an unreliable sub-routine, not an oracle.**
+**A transparent execution proxy that catches Go runtime failures and repairs the source automatically.**
 
-[![Build Status](https://img.shields.io/github/actions/workflow/status/yourusername/heal-cli/ci.yml?branch=main&style=flat-square)](https://github.com/yourusername/heal-cli/actions)
+[![Build Status](https://img.shields.io/github/actions/workflow/status/sainathmanda7/heal-cli/ci.yml?branch=main&style=flat-square)](https://github.com/sainathmanda7/heal-cli/actions)
 [![Go Version](https://img.shields.io/badge/Go-1.22+-00ADD8?style=flat-square&logo=go&logoColor=white)](https://go.dev)
 [![Platform](https://img.shields.io/badge/platform-Linux%20%7C%20WSL-informational?style=flat-square&logo=linux&logoColor=white)](#prerequisites)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg?style=flat-square)](LICENSE)
-[![Release](https://img.shields.io/github/v/release/yourusername/heal-cli?style=flat-square)](https://github.com/yourusername/heal-cli/releases)
+[![Release](https://img.shields.io/github/v/release/sainathmanda7/heal-cli?style=flat-square)](https://github.com/sainathmanda7/heal-cli/releases)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg?style=flat-square)](#contributing)
 
-[Demo](#demo) · [Features](#key-features) · [Architecture](#architecture) · [Getting Started](#getting-started) · [Roadmap](#roadmap) · [Contributing](#contributing)
+[Demo](#demo) · [Features](#features) · [Architecture](#architecture) · [Getting Started](#getting-started) · [Roadmap](#roadmap) · [Contributing](#contributing)
 
 </div>
 
@@ -19,24 +19,17 @@
 
 ## Overview
 
-`heal-cli` is a fault-tolerant, OS-level execution proxy written natively in Go. It wraps your normal developer commands, intercepts critical runtime failures, and runs a **Monte Carlo Tree Search (MCTS)** over candidate patches to repair your code without human intervention.
+`heal-cli` is a developer proxy written in Go that wraps command-line workflows, catches crashes, and searches for verified patches using Monte Carlo Tree Search (MCTS) without touching your source files until a patch is proven safe.
 
-Most "AI fixers" paste model output straight into your repo and hope for the best. `heal-cli` takes the opposite stance: **the LLM is an untrusted, non-deterministic component** and must be constrained by structure and isolation:
+Rather than blindly trusting raw model output:
+- Context is extracted semantically via `gopls` (structs, interfaces, and signatures), not ad-hoc regex.
+- Fixes are simulated inside isolated Linux user namespaces on an ephemeral `/tmp` copy before touching host files.
+- Multiple candidates are evaluated concurrently and scored by blast radius and execution outcome.
+- Stack traces are hashed without dynamic pointer addresses to identify repeated error loops and halt quickly.
 
-- **Structurally**, by grounding prompts in real language-server data rather than raw error strings.
-- **Physically**, by running every candidate patch inside a Linux kernel namespace on a throwaway copy of your code.
-- **Statistically**, by searching across multiple candidates and scoring them, never trusting a single linear retry.
-- **Economically**, by hashing execution state to detect hallucination loops before they burn your API budget.
-
-If your command succeeds, `heal` stays invisible. If it crashes, `heal` takes over.
+If your process succeeds, `heal` remains completely transparent. If it fails, `heal` isolates the crash and repairs it.
 
 ## Demo
-<<<<<<< HEAD
-=======
-<p align="center">
-  <img src="docs/hero.gif" alt="heal-cli demo" width="800" />
-</p>
->>>>>>> 5bea651f3da75162090de3c3694e1f49caa9ca41
 
 <p align="center">
   <img src="docs/hero.gif" alt="heal-cli demo" width="800" />
@@ -44,19 +37,18 @@ If your command succeeds, `heal` stays invisible. If it crashes, `heal` takes ov
 
 ```bash
 $ heal go run main.go
-# ... your program runs exactly as it normally would ...
-# ... on a crash, heal captures the failure and starts the repair search ...
+# Process runs normally. If it crashes, heal intercepts and tests candidate patches.
 ```
 
 ## Features
 
-- **Transparent PTY proxy:** Wraps any command via a pseudo-terminal. Real-time streaming, interactive `stdin`, ANSI colors, and `SIGWINCH` window resizing behave exactly like running the command directly.
-- **AST and type context via `gopls`:** Instead of feeding raw grep output or arbitrary line slices to the model, `heal` queries a headless language server for type definitions, interfaces, and call signatures around the crash site.
-- **Parallel patch exploration:** Explores candidate fixes concurrently rather than relying on a single linear retry loop. Patches are simulated and scored based on outcome and blast radius.
-- **Rootless Linux sandboxing:** Evaluates candidate patches inside ephemeral Linux namespaces (`CLONE_NEWUSER`) in `/tmp`. Verifies fixes without modifying your working tree or requiring Docker.
-- **Loop and cycle prevention:** Hashes normalized stack traces (stripping dynamic pointer addresses) to detect recurring errors and abort before burning API tokens.
-- **Timeout and deadlock bounds:** Both initial command execution and sandbox validation are bounded by context timeouts to catch infinite loops, hangs, and fork bombs.
-- **OpenAI-compatible:** Works with OpenAI, OpenRouter, Ollama, or any gateway that exposes a standard `/v1/chat/completions` endpoint.
+- **Transparent PTY proxy:** Wraps commands through a pseudo-terminal so ANSI colors, real-time streaming, interactive `stdin`, and terminal resize events (`SIGWINCH`) work out of the box.
+- **AST and type context via `gopls`:** Queries a headless language server for accurate struct definitions, interfaces, and signatures surrounding the failure site.
+- **Parallel patch exploration:** Evaluates candidate fixes concurrently in goroutines rather than a fragile linear retry loop.
+- **Rootless Linux sandboxing:** Runs test patches inside ephemeral namespaces (`CLONE_NEWUSER`) in `/tmp`, preventing untested code from modifying your project or host system.
+- **Loop and cycle prevention:** Hashes normalized stack traces to catch recurring failures and stop before wasting API credits.
+- **Execution bounds:** Enforces timeouts across both initial command runs and sandboxed candidates to prevent hangs, deadlocks, and runaway resource usage.
+- **OpenAI-compatible:** Compatible with OpenAI, OpenRouter, local Ollama gateways, or any endpoint adhering to the `/v1/chat/completions` schema.
 
 ## Architecture
 
@@ -64,74 +56,54 @@ $ heal go run main.go
   <img src="docs/architecture.png" alt="heal-cli architecture diagram" width="800" />
 </p>
 
-`heal-cli` is a five-stage pipeline. Each stage exists to remove a specific class of failure common to LLM-driven repair tools.
-
-```mermaid
-flowchart LR
-    A["heal + your command"] --> B["PTY child process"]
-    B -- "exit 0" --> C["Transparent pass-through"]
-    B -- "panic / hang" --> D["Capture exit code + stderr"]
-    D --> E["gopls: extract file skeleton"]
-    E --> F["LLM: N candidate patches"]
-    F --> G["Parallel sandboxed trials"]
-    G --> H["Heuristic scoring"]
-    H -- "best patch passes" --> I["Apply fix to source"]
-    H -- "still failing" --> F
-    H -- "state hash seen before" --> J["Halt: cycle detected"]
-```
-
-| # | Stage | Mechanism | Why it exists |
-|---|-------|-----------|---------------|
-| 1 | **Transparent interception** | Allocates a pseudo-terminal (PTY) and multiplexes stdout/stderr to the host in real time; handles `SIGWINCH` and interactive stdin. | Plain pipes strip TTY behavior (colors, prompts, resizing). A PTY keeps your environment intact and keeps the proxy invisible on success. |
-| 2 | **Semantic context extraction** | Queries `gopls` as a background daemon over JSON-RPC to retrieve structs, interfaces, and function signatures. | String-parsing broken code is brittle. Structural context steers the model toward upstream root causes. |
-| 3 | **Parallel state-space search** | **Expansion:** N diverse candidate patches. **Simulation:** N concurrent goroutines. **Backpropagation:** blast-radius scoring promotes the best branch. | Linear retry loops explore one idea at a time. A search tree explores several and keeps the strongest. |
-| 4 | **Kernel sandboxing** | Re-exec pattern with `CLONE_NEWUSER`; target file is cloned into an ephemeral `/tmp` workspace for every trial. | Docker-class isolation is too heavy for an inner loop. Namespaces start fast and keep untrusted patches away from your source tree. |
-| 5 | **Cycle detection** | SHA-256 over the normalized, pointer-stripped execution stack trace, stored as an append-only state history. | Models loop (Fix A causes Error B, which causes Error A). A repeated hash proves thrashing and stops spend. |
+| # | Stage | Mechanism | Purpose |
+|---|-------|-----------|---------|
+| 1 | **Interception** | Allocates a PTY multiplexing stdout/stderr, handling `SIGWINCH` and interactive `stdin`. | Keeps terminal behavior intact and stays invisible on success. |
+| 2 | **Context Extraction** | Queries `gopls` over JSON-RPC for types, interfaces, and function signatures. | Supplies concrete AST context to help the model identify root causes. |
+| 3 | **Parallel Search** | Generates candidate variants and evaluates them concurrently. | Explores multiple solution paths and selects the highest scoring patch. |
+| 4 | **Sandboxing** | Re-exec pattern using unprivileged `CLONE_NEWUSER` against `/tmp`. | Validates candidate patches in isolation before writing back to source code. |
+| 5 | **Cycle Detection** | SHA-256 fingerprint of pointer-normalized execution stack traces. | Detects circular error loops early and terminates the search. |
 
 ### Design Decisions
 
-- **Why Go?** Goroutines make parallel candidate evaluation cheap, `context` gives first-class cancellation and timeouts, and direct access to Linux syscalls makes namespace work straightforward. The tool ships as a single static binary.
-- **Why a PTY instead of pipes?** Developer tools behave differently when they detect a terminal. A PTY preserves that behavior so wrapping a command doesn't change it.
-- **Why `gopls`?** It is the official Go language server, so signatures and types come from the same source of truth your editor uses, not from regex over source text.
-- **Why namespaces instead of Docker?** The sandbox sits in the hot path of every candidate trial. Namespaces avoid image management and daemon dependencies, and keep per-trial overhead minimal.
-- **Why hash stack traces?** Stack traces are a stable fingerprint of program state at failure. Stripping pointers and normalizing the trace makes equivalent failures collide, so a loop is detected by a cheap comparison instead of another LLM call.
+- **Why Go?** Native concurrency via goroutines, built-in cancellation via `context`, straightforward access to Linux system calls, and single static binary distribution.
+- **Why a PTY instead of standard pipes?** Many CLI tools change behavior without a TTY. A pseudo-terminal ensures native output formatting and interactivity remain intact.
+- **Why `gopls`?** Official language server providing accurate structural types and definitions directly from Go's AST.
+- **Why namespaces over Docker?** Ephemeral namespaces start in milliseconds with zero runtime dependencies or daemon overhead.
+- **Why hash normalized stack traces?** Pointer addresses change across runs, but normalized frames remain consistent, enabling cheap and reliable cycle detection without extra model calls.
 
-## Security & Adversarial Hardening
+## Security & Sandboxing
 
-`heal-cli` executes machine-generated code by design, so safety is a first-class concern. The engine has been exercised against the following adversarial payload classes:
+Candidate patches execute machine-generated code and must be safely bounded:
 
 | Threat | Behavior | Mitigation |
 |--------|----------|------------|
-| **Fork bombs / CPU exhaustion** | Process deadlocks or spawns infinitely | Host and sandbox execution are wrapped in `context.WithTimeout`. The process is killed and a synthetic timeout trace is injected, which feeds back into the repair loop. |
-| **Host wipers / filesystem escape** | Patch calls destructive commands such as `os.RemoveAll` | Code runs in an isolated namespace against an ephemeral `/tmp` copy. Destruction is confined to the throwaway workspace; the host repository is left untouched. |
-| **Memory leaks / OOM** | Patch allocates unboundedly | Standard OS process termination is mapped back to the heuristic evaluator as an *Unhandled Panic*. |
-
-> **Note:** Sandboxing is defense-in-depth, not a substitute for good hygiene. Treat `heal` as you would any tool that executes generated code: review applied diffs (use version control), and prefer disposable environments when working with code you don't trust.
+| **Infinite loops / Deadlocks** | Process hangs indefinitely | Host and sandbox execution are governed by `context.WithTimeout`. Hung processes are killed and flagged as unhandled errors. |
+| **Destructive filesystem calls** | Patch calls commands like `os.RemoveAll` | Verification runs in an isolated user namespace in `/tmp`. Any destruction is confined to throwaway scratch space. |
+| **Memory leaks / Out-of-memory** | Patch allocates uncontrollably | Abnormal OS process termination is intercepted and penalized by the state evaluator. |
 
 ## Getting Started
 
 ### Prerequisites
 
-- **Linux or WSL.** The sandbox relies on Linux syscalls and unprivileged user namespaces.
-- **Go** (1.22+ recommended)
-- **gopls** (installed below)
-- An API key for an **OpenAI-compatible** endpoint
+- **Linux or WSL** (relies on Linux user namespaces)
+- **Go 1.22+**
+- **gopls**
+- API key for any OpenAI-compatible provider
 
 ### Installation
 
 ```bash
 # 1. Install heal-cli
-go install github.com/yourusername/heal-cli@latest
+go install github.com/sainathmanda7/heal-cli@latest
 
-# 2. Install the language-server dependency
+# 2. Install the gopls language server
 go install golang.org/x/tools/gopls@latest
 ```
 
-<!-- Update the module path above to your real repository before publishing. -->
-
 ### Configuration
 
-Export your credentials in `~/.bashrc` or `~/.zshrc`:
+Add your API credentials to your shell configuration (`~/.bashrc` or `~/.zshrc`):
 
 ```bash
 export OPENAI_API_KEY="your-api-key"
@@ -140,95 +112,46 @@ export OPENAI_BASE_URL="https://openrouter.ai/api/v1"
 
 | Variable | Required | Description |
 |----------|----------|-------------|
-| `OPENAI_API_KEY` | ✅ | API key for your LLM provider. |
-| `OPENAI_BASE_URL` | ✅ | Base URL of any OpenAI-compatible API (e.g. OpenRouter, OpenAI, or a self-hosted gateway). |
+| `OPENAI_API_KEY` | Yes | API key for your LLM provider. |
+| `OPENAI_BASE_URL` | Yes | Base URL for any OpenAI-compatible API endpoint. |
 
-### Verify the install
+### Usage
 
-```bash
-heal go run main.go
-```
-
-If the program succeeds, you'll see exactly the output you'd see without `heal`.
-
-## Usage
-
-Prepend `heal` to any standard execution command:
+Prepend `heal` to your build or run command:
 
 ```bash
 heal go run main.go
 ```
 
-**What happens next:**
-
-| Outcome | `heal` behavior |
-|---------|-----------------|
-| Command exits `0` | Stays completely invisible. Output is passed through untouched. |
-| Command panics, crashes, or hangs | Captures the exit code and stderr, extracts context via `gopls`, and starts the repair search. |
-| A candidate patch passes | The highest-scoring fix is promoted and applied. |
-| A failure state repeats | Cycle detection halts the search and stops further API spend. |
-
-### Example: graceful degradation
-
-Given a program that crashes with a raw `panic()` on bad input, `heal` may promote a patch that logs the error and exits with a non-zero status. A deliberate, observable failure beats an unrecoverable crash, and the scoring heuristic reflects that.
+- **Exit 0:** Passes output through normally and exits silently.
+- **Crash or Panic:** Intercepts stderr, extracts AST context via `gopls`, runs candidate search in isolated namespaces, and applies the verified fix.
+- **Loop Detected:** Halts immediately if the same error fingerprint recurs.
 
 ## Roadmap
-
-> Items marked ✅ are part of the current design; the rest are proposed directions, not commitments.
 
 - [x] PTY-based transparent proxy with `SIGWINCH` and stdin handling
 - [x] Headless `gopls` context extraction over JSON-RPC
 - [x] Parallel MCTS candidate search with blast-radius scoring
 - [x] Namespace sandbox via re-exec and `CLONE_NEWUSER`
 - [x] SHA-256 stack-trace cycle detection
-- [ ] Configuration file and CLI flags (candidate count `N`, timeouts, search depth)
-- [ ] Optional human-in-the-loop mode: preview the winning diff before it is applied
-- [ ] Additional sandbox hardening (e.g. seccomp filters, cgroup memory/CPU limits)
-- [ ] Support for additional languages via their language servers
-- [ ] macOS support through an alternative isolation backend
-- [ ] First-class support for local/offline models
-- [ ] Reproducible benchmark suite of crash scenarios with published results
+- [ ] CLI flags and configuration file for candidate counts, timeouts, and search depth
+- [ ] Interactive confirmation mode to inspect diffs prior to disk write
+- [ ] Additional sandbox confinement (`seccomp` filters and cgroup resource limits)
+- [ ] Support for additional languages and language servers
+- [ ] macOS support via platform-native isolation backends
+- [ ] Local model support via embedded llama.cpp / Ollama defaults
 
 ## Contributing
 
-Contributions are welcome, whether it's a bug report, a new scoring heuristic, or a hardening idea.
-
-1. **Open an issue first** for significant changes so we can agree on direction.
-2. **Fork** the repository and create a branch: `git checkout -b feat/my-change`
-3. **Set up your environment:**
-   ```bash
-   git clone https://github.com/yourusername/heal-cli.git
-   cd heal-cli
-   go mod download
-   go build ./...
-   ```
-4. **Write tests** for new behavior. Sandbox and cycle-detection changes should include adversarial cases.
-5. **Check your work** before pushing:
+1. Fork the repository and create a feature branch: `git checkout -b feat/my-feature`
+2. Ensure tests and formatting pass:
    ```bash
    gofmt -l .
    go vet ./...
    go test ./...
    ```
-6. **Open a pull request** describing the problem, the approach, and any trade-offs.
-
-**Code style:** idiomatic Go, `gofmt`-clean, small focused functions, and explicit error handling. We follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `docs:`, …).
-
-**Reporting security issues:** if you find a sandbox escape or similar vulnerability, please report it privately rather than in a public issue. <!-- Add SECURITY.md / contact email -->
+3. Open a pull request detailing the changes and relevant context.
 
 ## License
 
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details. <!-- Confirm your chosen license -->
-
-## Acknowledgments
-
-- The Go team and the [`gopls`](https://pkg.go.dev/golang.org/x/tools/gopls) maintainers for the language server that grounds this tool's context extraction.
-- The Monte Carlo Tree Search research community, whose work on search under uncertainty inspired the repair strategy.
-- [OpenRouter](https://openrouter.ai) and the OpenAI-compatible API ecosystem for making provider-agnostic tooling practical.
-
----
-
-<div align="center">
-
-If `heal-cli` saved you a debugging session, consider giving it a ⭐
-
-</div>
+Distributed under the [MIT License](LICENSE).
