@@ -30,7 +30,7 @@ func NewLLMClient() (*LLMClient, error) {
 	}
 	baseURL := os.Getenv("OPENAI_BASE_URL")
 	if baseURL == "" {
-		baseURL = "https://api.openai.com/v1"
+		baseURL = "https://openrouter.ai/api/v1"
 	}
 	return &LLMClient{
 		APIKey:     apiKey,
@@ -54,7 +54,7 @@ CRITICAL GUARDRAILS:
 3. Handle network/DB failures gracefully (e.g., log and return). DO NOT panic in main().`, errorLog, sourceContext)
 
 	reqPayload := map[string]interface{}{
-		"model":       "gpt-4o-mini",
+		"model":       "openai/gpt-4o-mini",
 		"messages":    []Message{{Role: "user", Content: prompt}},
 		"temperature": 0.4,
 		"n":           candidates,
@@ -86,7 +86,7 @@ CRITICAL GUARDRAILS:
 			Message Message `json:"message"`
 		} `json:"choices"`
 	}
-	
+
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, fmt.Errorf("failed to decode JSON response: %w", err)
 	}

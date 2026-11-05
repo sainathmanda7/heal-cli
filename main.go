@@ -80,13 +80,17 @@ func main() {
 		ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
 		patches, err := llmClient.RequestPatchCandidates(ctx, logString, sourceContext, 3)
 		cancel()
-		
+
 		if err != nil {
 			color.Red("[HEAL] LLM Request failed: %v", err)
 			os.Exit(1)
 		}
 
-		bestNode, searchErr := Explore(filePath, targetArgs, patches)
+		bestNode, searchErr := Explore(
+			filePath,
+			append([]string{targetCmd}, targetArgs...),
+			patches,
+		)
 		if searchErr != nil {
 			color.Red("[HEAL] Search tree collapsed: %v", searchErr)
 			continue // Trigger the next attempt loop
@@ -98,8 +102,19 @@ func main() {
 				color.Red("[HEAL] Failed to write optimal patch to host: %v", applyErr)
 				os.Exit(1)
 			}
-			color.Green("\n[HEAL] MCTS Repair successful on attempt %d. File %s permanently updated.", attempt+1, filePath)
-			os.Exit(0)
+			color.Green("\n[HEAL] MCTS Repair successful. File %s updated.", filePath)
+
+			color.Cyan("\n[HEAL] Re-running application to verify repair...")
+
+			verifyExitCode, _ := executeWithPTY(targetCmd, targetArgs)
+
+			if verifyExitCode == 0 {
+				color.Green("\n[HEAL] Verification successful! Application is healthy.")
+				os.Exit(0)
+			}
+
+			color.Red("\n[HEAL] Verification failed. Application still has errors.")
+			os.Exit(1)
 		}
 	}
 
@@ -154,7 +169,7 @@ func executeWithPTY(command string, args []string) (int, string) {
 
 		// Spoof a standard Go panic trace so the context extractor can find the file
 		timeoutMsg := fmt.Sprintf("\npanic: process timed out (infinite loop or deadlock detected)\n\ngoroutine 1 [running]:\nmain.main()\n\t%s:1 +0x0\n", targetFile)
-		
+
 		fmt.Fprintln(os.Stdout, color.RedString(timeoutMsg))
 		outBuffer.WriteString(timeoutMsg)
 		return 124, outBuffer.String()
