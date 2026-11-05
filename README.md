@@ -31,6 +31,12 @@ Most "AI fixers" paste model output straight into your repo and hope for the bes
 If your command succeeds, `heal` stays invisible. If it crashes, `heal` takes over.
 
 ## Demo
+<<<<<<< HEAD
+=======
+<p align="center">
+  <img src="docs/hero.gif" alt="heal-cli demo" width="800" />
+</p>
+>>>>>>> 5bea651f3da75162090de3c3694e1f49caa9ca41
 
 <p align="center">
   <img src="docs/hero.gif" alt="heal-cli demo" width="800" />
