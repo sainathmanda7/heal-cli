@@ -42,18 +42,21 @@ $ heal go run main.go
 # ... on a crash, heal captures the failure and starts the repair search ...
 ```
 
-## Key Features
+## Features
 
-- **🖥️ Zero-friction wrapper:** Prepend `heal` to any command. Your terminal behaves identically on success: real-time output, window resizing, and interactive stdin all work.
-- **🧠 Semantic, not string-based, context:** A headless `gopls` daemon supplies structs, interfaces, and function signatures so the model fixes the **root cause**, not the downstream symptom.
-- **🌳 Parallel MCTS repair search:** N diverse candidate patches are generated and tested concurrently in goroutines, then scored by a blast-radius heuristic.
-- **🛡️ Kernel-namespace sandboxing:** Candidates run via the re-exec pattern with `CLONE_NEWUSER` against an ephemeral `/tmp` workspace. There's no container runtime or VM boot to wait for.
-- **🔁 Cryptographic cycle detection:** A SHA-256 hash of the normalized, pointer-stripped stack trace identifies repeated failure states and halts the search immediately.
-- **⚖️ Graceful-degradation scoring:** The evaluator understands that replacing a raw `panic()` with a logged `os.Exit(1)` is a better outcome than a crash, and ranks it accordingly.
-- **⏱️ Hard execution limits:** Host and sandbox executions are wrapped in `context.WithTimeout`, so deadlocks and runaway processes are killed and converted into repairable failures.
-- **🔌 Provider-agnostic:** Works with any OpenAI-compatible endpoint (OpenAI, OpenRouter, self-hosted gateways) via `OPENAI_BASE_URL`.
+- **Transparent PTY proxy:** Wraps any command via a pseudo-terminal. Real-time streaming, interactive `stdin`, ANSI colors, and `SIGWINCH` window resizing behave exactly like running the command directly.
+- **AST and type context via `gopls`:** Instead of feeding raw grep output or arbitrary line slices to the model, `heal` queries a headless language server for type definitions, interfaces, and call signatures around the crash site.
+- **Parallel patch exploration:** Explores candidate fixes concurrently rather than relying on a single linear retry loop. Patches are simulated and scored based on outcome and blast radius.
+- **Rootless Linux sandboxing:** Evaluates candidate patches inside ephemeral Linux namespaces (`CLONE_NEWUSER`) in `/tmp`. Verifies fixes without modifying your working tree or requiring Docker.
+- **Loop and cycle prevention:** Hashes normalized stack traces (stripping dynamic pointer addresses) to detect recurring errors and abort before burning API tokens.
+- **Timeout and deadlock bounds:** Both initial command execution and sandbox validation are bounded by context timeouts to catch infinite loops, hangs, and fork bombs.
+- **OpenAI-compatible:** Works with OpenAI, OpenRouter, Ollama, or any gateway that exposes a standard `/v1/chat/completions` endpoint.
 
 ## Architecture
+
+<p align="center">
+  <img src="docs/architecture.png" alt="heal-cli architecture diagram" width="800" />
+</p>
 
 `heal-cli` is a five-stage pipeline. Each stage exists to remove a specific class of failure common to LLM-driven repair tools.
 
