@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🩹 heal-cli
+# heal-cli
 
 **A transparent execution proxy that catches Go runtime failures and repairs the source automatically, treating the LLM as an unreliable sub-routine, not an oracle.**
 
